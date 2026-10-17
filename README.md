@@ -1,0 +1,2 @@
+# warhead
+"Peace through strength"
