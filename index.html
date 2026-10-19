@@ -242,6 +242,7 @@ const W=1440,H=720;
 const START=5;             // missiles each side places at the start
 const SETUP_GRACE=3;       // seconds after the last missile is placed before the war starts
 const PLAN=30;             // seconds both sides have to give orders each round
+const DEPLOY=10;           // seconds everyone has to place new missiles, before the orders clock starts
 const SPEED=95;            // missile speed, map units per second, the same for everyone
 const RANGE=48;            // interceptor circle round a defending city
 const LAUNCH_GAP=0.5;      // seconds between launches from one city
@@ -288,7 +289,7 @@ const TIPS={
   menu:'Click a selected city again, or right-click any city, to see its orders.',
   enemyFire:'A coloured city is one another player has been seen in. They may have moved since.',
   hq:'Your HQ can move to a neighbouring city, but that is the only move you can make that round. While it travels it is out of reach; if the city it is heading for is destroyed first, it is lost.',
-  reinforce:'New missiles arrive at the start of each round. Place them in any city. Missiles outside your bloc are visible to all players. Any you keep for later are added to the next round.'
+  reinforce:'New missiles arrive at the start of each round. You have 10 seconds to place them in any city. Missiles outside your bloc are visible to all players. Any you do not place are kept for the next round.'
 };
 function tip(k){if(!tipsOn||tipSeen.has(k))return;tipSeen.add(k);tipKey=k;}
 $('tipsOff').onclick=()=>{tipsOn=false;tipKey='';};
@@ -380,13 +381,13 @@ function stepTrips(){const mt=G.trips[G.me];if(mt){cities[mt.from].active=true;c
     if(cities[tr.to].alive){G.hqs[p]=tr.to;if(p===G.me)say('Your HQ is now in '+cities[tr.to].n+'.');}else tr.dead=true;}}
 
 // ---------- rounds ----------
-// the deploy step ends when every new missile is placed or its 10 seconds run out; any left over are kept
+// the deploy step ends when its 10 seconds run out, the same moment for everyone; any missiles not placed are kept
 function endDeploy(){G.carry=(G.carry||0)+G.pending;G.pending=0;G.deploying=false;G.left=PLAN;G.lineAt=-99;}
 function startRound(r){
   G.lineAt=-99;G.round=r;G.left=PLAN;G.orders=[];G.hqOrder=-1;G.trips=Array(G.n).fill(null);G.mode='idle';G.sel=-1;G.sent=false;
   G.pending=(r>1?reinforcements(r):0)+(G.carry||0);G.carry=0;G.baseM=cities.map(c=>c.m[G.me]);G.reachBase=reachOf(G.me);G.outPlaced=[];
   if(G.out[G.me]){G.pending=0;G.phase='wait';G.sent=true;}else{G.phase='plan';if(r>1)tip('reinforce');}
-  G.deploying=G.phase==='plan'&&G.pending>0;
+  G.deploying=G.phase==='plan'&&G.pending>0;if(G.deploying)G.left=DEPLOY;
   G.summarySeen=r===1;Host.roundStarted(r);
 }
 // missiles not placed when the clock runs out are kept for the next round
@@ -627,7 +628,7 @@ function ui(){
   else if(plan){$('clockT').textContent='Round '+G.round;$('clockS').textContent=G.deploying?'Deploy missiles':'Give orders';$('clockS').className='';}
   else if(playing){$('clockT').textContent='Round '+G.round;$('clockS').textContent='Playing out';$('clockS').className='';}
   // the big round clock over the map
-  {const on=plan&&!G.deploying;$('timer').classList.toggle('off',!on);if(on){const sec=Math.max(0,Math.ceil(G.left));$('timerN').textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');$('timer').classList.toggle('hurry',sec>0&&sec<=5);}}
+  {const on=plan;$('timer').classList.toggle('off',!on);if(on){const sec=Math.max(0,Math.ceil(G.left));$('timerN').textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');$('timer').classList.toggle('hurry',sec>0&&sec<=5);}}
   // the selected city, or what is waiting to be placed
   let s=G.sel>=0?cities[G.sel]:null;if(s&&!mine(s))s=null;
   const placing=(setup&&G.hq.own>=0)||(plan&&G.pending>0);
@@ -637,10 +638,9 @@ function ui(){
     const ordered=G.orders.filter(o=>o.from===s.id).length;clearOn=ordered>0;
     $('unitSub').textContent=s.def?plural(s.own,'missile')+', defending':plural(s.own,'missile')+(ordered?(avail(s)>0?', '+avail(s)+' free':', all ordered'):'');}
   else{$('unitName').textContent='';$('unitSub').textContent='';}
-  if(plan&&G.deploying){clearOn=true;if($('unitClear').textContent!=='Keep for later')$('unitClear').textContent='Keep for later';}else if($('unitClear').textContent!=='Clear orders')$('unitClear').textContent='Clear orders';
   $('unitClear').style.visibility=clearOn?'visible':'hidden';
-  const act=plan&&G.pending===0&&!!s&&G.hqOrder<0;
-  {const isHQ=plan&&G.pending===0&&s&&s.id===G.hq.own;$('bHQ').disabled=!isHQ;$('bHQ').textContent=isHQ&&G.hqOrder>=0?'Stay':'Move HQ';$('bHQ').classList.toggle('active',!!(isHQ&&(G.mode==='hq'||G.hqOrder>=0)));}
+  const act=plan&&!G.deploying&&G.pending===0&&!!s&&G.hqOrder<0;
+  {const isHQ=plan&&!G.deploying&&G.pending===0&&s&&s.id===G.hq.own;$('bHQ').disabled=!isHQ;$('bHQ').textContent=isHQ&&G.hqOrder>=0?'Stay':'Move HQ';$('bHQ').classList.toggle('active',!!(isHQ&&(G.mode==='hq'||G.hqOrder>=0)));}
   $('bStrike').disabled=!(act&&avail(s)>0);$('bMove').disabled=!(act&&avail(s)>0);$('bDefend').disabled=!(act&&s.own>0);
   $('bDefend').textContent=s&&s.def?'Stand down':'Defend';$('bDefend').classList.toggle('active',!!(act&&s.def));
   $('bStrike').classList.toggle('active',act&&G.mode==='strike');$('bMove').classList.toggle('active',act&&G.mode==='move');
@@ -653,6 +653,7 @@ function ui(){
   else if(plan){
     if(G.summary&&!G.summarySeen)t=G.summary;
     else if(recent)t=G.line;
+    else if(G.deploying&&G.pending===0)t='All your new missiles are placed. Orders open when the clock runs out.';
     else if(G.pending>0)t='Click a city to place your new '+(G.pending===1?'missile.':'missiles.')+' Missiles outside your bloc are visible to all players.';
     else if(G.hqOrder>=0)t='Your HQ will move to '+cities[G.hqOrder].n+' this round. No other orders can be given.';
     else if(G.mode==='hq'&&s)t='Click a neighbouring city to move your HQ there. It is your only move this round.';
@@ -683,7 +684,7 @@ function click(id){
     if(G.pending>0&&placeable(c)){c.own++;G.pending--;G.lineAt=-99;}else if(G.pending>0)say(c.n+' is too far from your HQ.');return;
   }
   if(G.phase!=='plan')return;
-  if(G.pending>0){deployAt(c);return;}
+  if(G.deploying||G.pending>0){deployAt(c);return;}
   const s=G.sel>=0?cities[G.sel]:null;
   // a second click on the selected city opens its orders
   if(s&&s.id===id){G.mode='idle';openMenu(id);return;}
@@ -711,10 +712,10 @@ function menuSpec(id){
       if(c.own>0)add('Take a missile back',()=>{if(c.own>0){c.own--;G.pending++;G.lastAdd=-1;}},true);
       if(!items.length&&G.pending>0)note='This city is too far from your HQ.';
     }
-  }else if(G.pending>0){
+  }else if(G.deploying||G.pending>0){
     if(c.own>0)sub=plural(c.own,'missile');
-    add('Place a missile',()=>deployAt(c),true);
-    if(!inBloc(c))note='Missiles here are visible to all players.';
+    if(G.pending>0){add('Place a missile',()=>deployAt(c),true);if(!inBloc(c))note='Missiles here are visible to all players.';}
+    else note='Orders open when the clock runs out.';
   }else{
     if(mine(c)){const ordered=G.orders.filter(o=>o.from===id).length;
       sub=c.own===0?'No missiles':plural(c.own,'missile')+(c.def?', defending':ordered?(avail(c)>0?', '+avail(c)+' free':', all ordered'):'');}
@@ -816,7 +817,7 @@ cvs.addEventListener('wheel',ev=>{ev.preventDefault();const r=cvs.getBoundingCli
 document.addEventListener('keydown',ev=>{const k=ev.key.toLowerCase();
   if(k==='escape'){if(menuFor>=0)closeMenu();else if(G.mode!=='idle')G.mode='idle';else G.sel=-1;}
   if(k==='s')$('bStrike').click();if(k==='d')$('bDefend').click();if(k==='t')$('bMove').click();if(k==='h')$('bHQ').click();if(k==='0')resetView();});
-$('unitClear').onclick=()=>{if(G.phase==='plan'&&G.deploying){endDeploy();return;}const s=G.sel>=0?cities[G.sel]:null;if(s)G.orders=G.orders.filter(o=>o.from!==s.id);};
+$('unitClear').onclick=()=>{const s=G.sel>=0?cities[G.sel]:null;if(s)G.orders=G.orders.filter(o=>o.from!==s.id);};
 $('bStrike').onclick=()=>{if($('bStrike').disabled)return;G.mode=G.mode==='strike'?'idle':'strike';};
 $('bMove').onclick=()=>{if($('bMove').disabled)return;G.mode=G.mode==='move'?'idle':'move';};
 $('bDefend').onclick=()=>{if($('bDefend').disabled)return;toggleDefend(cities[G.sel]);};
@@ -887,7 +888,7 @@ const Host={setups:{},orders:{},round:0,deadline:0,lastOut:null,lastOutAt:0,
     for(const h in at)if(at[h].length>1){for(const p of at[h])delete this.setups[p];this.out({t:'repick',ps:at[h],city:+h,n:Date.now()});}
     if(Object.keys(this.setups).length<G.n)return;
     this.round=1;this.out({t:'begin',setups:G.players.map((_,p)=>this.setups[p])});},
-  roundStarted(r){if(!Net.host)return;this.round=r;this.orders={};this.deadline=G.clock+PLAN+75;},
+  roundStarted(r){if(!Net.host)return;this.round=r;this.orders={};this.deadline=G.clock+DEPLOY+PLAN+15;},
   gotOrders(p,round,data){if(!Net.host||round!==this.round||this.orders[p])return;this.orders[p]=data;this.check();},
   check(){if(!Net.host||G.round!==this.round||this.sentGo===this.round)return;
     const need=G.players.map((_,i)=>i).filter(i=>!G.out[i]);
@@ -952,7 +953,7 @@ lobbyShow('start');
 let last=performance.now();
 function tick(now){requestAnimationFrame(tick);
   const dt=Math.min(0.05,(now-last)/1000);last=now;G.clock+=dt;
-  if(G.phase==='plan'){G.left-=dt;if(G.deploying){if(G.pending===0)endDeploy();}else if(G.left<=0)submitRound();}
+  if(G.phase==='plan'){G.left-=dt;if(G.deploying){if(G.left<=0)endDeploy();}else if(G.left<=0)submitRound();}
   else if(G.phase==='setup'&&G.hq.own>=0){if(G.pending===0){G.go=(G.go??SETUP_GRACE)-dt;if(G.go<=0){G.go=null;submitSetup();}}else G.go=null;}
   else if(G.phase==='play'){G.acc+=dt;while(G.acc>=STEP&&G.phase==='play'){G.acc-=STEP;G.t+=STEP;stepFlights();stepTrips();if(!G.flights.length&&G.t>=G.resEnd)animDone();}}
   Net.tick();Host.tick();
